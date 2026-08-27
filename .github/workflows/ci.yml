@@ -15,7 +15,7 @@ jobs:
     name: Repo hygiene
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: No secrets committed
         run: |
@@ -37,7 +37,7 @@ jobs:
     name: Build & test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Detect Node project
         id: detect
@@ -54,7 +54,7 @@ jobs:
             echo "lockfile=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         if: steps.detect.outputs.node == 'true'
         with:
           node-version: '22'
