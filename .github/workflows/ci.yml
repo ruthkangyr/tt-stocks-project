@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No secrets committed
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1 || \
+             git ls-files '.env.*' | grep -v '^\.env\.example$' | grep -q .; then
+            echo "::error::A .env file is tracked by git. Remove it and rotate the key."
+            git ls-files '.env*'
+            exit 1
+          fi
+          echo "No .env files tracked."
+
+      - name: .env.example stays in sync
+        run: |
+          if [ -f .env.example ] && grep -nE '=[^[:space:]]' .env.example | grep -vE '=(your|<|\$\{|""|$)' | grep -q .; then
+            echo "::warning::.env.example may contain real values, not placeholders."
+          fi
+
+  check:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect Node project
+        id: detect
+        run: |
+          if [ -f package.json ]; then
+            echo "node=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "node=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json yet — skipping install, lint, typecheck, test."
+          fi
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            echo "lockfile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "lockfile=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.detect.outputs.node == 'true'
+        with:
+          node-version: '22'
+          cache: ${{ steps.detect.outputs.lockfile == 'true' && 'npm' || '' }}
+
+      - name: Install
+        if: steps.detect.outputs.node == 'true'
+        run: |
+          if [ "${{ steps.detect.outputs.lockfile }}" = "true" ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Lint
+        if: steps.detect.outputs.node == 'true'
+        run: npm run --if-present lint
+
+      - name: Typecheck
+        if: steps.detect.outputs.node == 'true'
+        run: npm run --if-present typecheck
+
+      - name: Test
+        if: steps.detect.outputs.node == 'true'
+        env:
+          # Eval/LLM tests must skip, not fail, when no key is present.
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: npm run --if-present test
+
+      - name: Build
+        if: steps.detect.outputs.node == 'true'
+        run: npm run --if-present build
